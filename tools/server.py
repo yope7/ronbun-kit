@@ -285,8 +285,8 @@ TL;DR を2文以内。
 各見出しの下に本文の事実に基づく要点を箇条書き。数値・データセット名・比較手法は本文の値をそのまま書く。関連研究は引用元の具体名を挙げる。
 # 図の使いどころ
 figures.json の各図について1項目ずつ: 実際に見て何が描かれているか / 論文中の Figure/Table 何番に相当するか / 6章のどこで使うと効くか（使わないなら「不使用」と理由）。解説ページで主役級に使える図には★を付ける。
-# 用語の言い換え表
-専門用語 → 日常語の対応（後で解説に使う）。
+# 用語集
+論文の重要な専門用語ごとに: 用語（論文の表記のまま）→ 初出で添える1文の平易な説明。用語を別の言葉やたとえに置き換えない。
 # 数式メモ
 折りたたみに入れる価値のある式があれば、プレーンテキスト表記で。
 
@@ -299,7 +299,7 @@ def page_prompt(jobrel, slug, topic, pdf_rel):
     return f"""あなたは『ronbun』という日本語の論文解説サイト（図解中心の静的サイト）に、新しい論文の図解ページを1枚追加する担当。作業ディレクトリはカレント（{REPO}）。精読メモは既に用意されている。
 
 ## まず読む（この順で。必ず全部）
-1. {jobrel}/analysis.md — 精読メモ。**これがページの設計図**。書誌情報・6章の下書き・図の使いどころ・言い換え表をそのまま活かす。
+1. {jobrel}/analysis.md — 精読メモ。**これがページの設計図**。書誌情報・6章の下書き・図の使いどころ・用語集をそのまま活かす。
 2. {jobrel}/figures.json — 論文から切り出した図PNGの一覧（rel = ページからの相対パス）。
 3. preferences.md（説明スタイルの正典＝最優先）
 4. site/pages/fourier-features.html（完成テンプレ。ヘッダ/パンくず/hero/フッタ/CSSクラス/インラインSVGの書き方をこの通りに）
@@ -316,7 +316,7 @@ def page_prompt(jobrel, slug, topic, pdf_rel):
   として埋め込む。実験結果のグラフや手法の全体図は実図が最適。概念の直感説明は自作の手描きインラインSVG（`<figure class="viz">`）。
 - 図の数: 実図＋SVG合わせて各章に最低1つ。自作SVGはページ全体で最低3つ、valid なSVG（タグを閉じ属性は引用符）。
 - ⚠️ **文体（最重要）: Claude っぽい AI 語を書かない（読点だらけの長文・煽り/キャッチコピー・——の決めゼリフ・「ポイントは/つまり」連発・造語の“飾り”・呼びかけや励まし・絵文字）。人が普通に書くノートの文にする。** CLAUDE.md の文体ルールに従い、書き終えたら見直して直すこと。
-- 日本語・専門用語回避（言い換え表を使う）・比喩。図が主役で文章は短い補足。パネル並べ禁止(1図=1アイデア)。色の意味づけ（--warm=ざっくり/粗い系、--cool=こまかい/細かい系、--good=良い、--bad=悪い）を一貫させ図注で説明。数式は analysis.md の数式メモから `<details class="deep">` に。外部依存禁止(CDN/MathJax/フォント読込なし)。既存ページと同等の作り込み。
+- 日本語。**用語はそのまま使う**: 論文の専門用語（GNN・DAG・並列度・強化学習など）は言い換えずにそのまま書く。初めて出たところで1文の説明を添え、以降は同じ用語で統一する。用語の代わりに独自のあだ名・たとえ語を作らない（悪い例:「グラフを読む目」=GNN、「段取り係」=スケジューラ、「人数」=並列度）。たとえ話は補足として1つの考えに1回まで。「たとえば〜のようなもの」と明示し、本文の用語を置き換えない。分かりにくさの原因は用語より説明の飛躍。前提から順に説明する。「ひとことで（TL;DR）」も初出に含む: TL;DR で使う専門用語は2〜3個までに絞り、それぞれ括弧で短く説明する。同じものを英語と日本語で書き分けない（GNN と graph neural network を混ぜない）（用語集を使う）。図が主役で文章は短い補足。パネル並べ禁止(1図=1アイデア)。色の意味づけ（--warm=ざっくり/粗い系、--cool=こまかい/細かい系、--good=良い、--bad=悪い）を一貫させ図注で説明。数式は analysis.md の数式メモから `<details class="deep">` に。外部依存禁止(CDN/MathJax/フォント読込なし)。既存ページと同等の作り込み。
 - 数値・主張は analysis.md（＝論文本文由来）の事実だけを使う（捏造厳禁）。
 - **理解度チェック（必須）**: 6章の後（原論文リンクの前）に、テンプレ（fourier-features.html）と同じ形の `<section class="quiz">` を置く。
   見出しは `<div class="section-head"><span class="step-num">✓</span><h2>理解度チェック</h2></div>`。
@@ -333,6 +333,23 @@ def page_prompt(jobrel, slug, topic, pdf_rel):
 6章が連番で揃う / 理解度チェック4問（各問 data-correct がちょうど1つ）/ study.js 読み込み / 実図の src が figures.json の rel と一致 / SVG3つ以上 / 外部依存なし / 相対パスが上記通り / index.htmlに1枚だけカード追加（statusbar/newly/scriptは無傷）。
 
 最後に、作成したページのパスと採用したトピック名を一言で報告。"""
+
+def regen_prompt(jobrel, slug, pdf_rel, backup_rel):
+    """既存ページの作り直し: 新規と同じ手順で書くが、index.html にはカードを足さない"""
+    base = page_prompt(jobrel, slug, "", pdf_rel)
+    head, rest = base.split("## まず読む", 1)
+    body, tail = rest.split("## トップページに追加", 1)
+    tail = tail.split("## 自己点検", 1)[1]
+    return (head.replace("新しい論文の図解ページを1枚追加する担当", "既存の図解ページを1から作り直す担当")
+            + f"""## 作り直しの前提
+- 旧ページは {backup_rel} に退避済み。旧ページの文章・たとえ語・見出しは流用しない（読者から「専門用語を避けた変なたとえ語が多くて分かりにくい」と言われて作り直す）。
+- 旧ページの 6章「関連研究」にある他の解説ページへのリンク（href="xxx.html"）とパンくずのトピック名だけは Read で確認して引き継ぐ。
+
+## まず読む""" + body + f"""## トップページ
+- site/index.html の既存カード（href="pages/{slug}.html"）はそのまま残す。カードを増やさない。
+- そのカードの h3 と p の文言だけ、新しいページに合わせて Edit で直してよい（あだ名・たとえ語を使わない）。他は触らない。
+
+## 自己点検""" + tail.replace("index.htmlに1枚だけカード追加", "index.html のカードは1枚のまま"))
 
 def fix_prompt(slug, problems):
     plist = "\n".join(f"- {p}" for p in problems)
@@ -377,9 +394,22 @@ def validate(slug):
     return problems
 
 # ---------- job ----------
-def run_job(job_id, pdf_rel, slug, topic, npages, figs):
+def run_job(job_id, pdf_rel, slug, topic, npages, figs, regen=False):
     J = JOBS[job_id]
     jobrel = f"tools/jobs/{job_id}"
+    ppath = os.path.join(PAGES, slug + ".html")
+    backup = None
+    if regen:   # 旧ページを退避してから作り直す（失敗したら戻す）
+        backup = os.path.join(BACKDIR, f"{slug}.{time.strftime('%Y%m%d%H%M%S')}.html")
+        shutil.copy(ppath, backup)
+        J["backup"] = os.path.basename(backup).split(".")[-2]
+    try:
+        _run_job(J, jobrel, pdf_rel, slug, topic, npages, figs, ppath, backup)
+    finally:
+        if backup and not os.path.exists(ppath):
+            shutil.copy(backup, ppath)
+
+def _run_job(J, jobrel, pdf_rel, slug, topic, npages, figs, ppath, backup):
     try:
         # ① 精読（claude CLI は稀に接続が切れるので最大3回試す）
         apath = os.path.join(REPO, jobrel, "analysis.md")
@@ -402,13 +432,16 @@ def run_job(job_id, pdf_rel, slug, topic, npages, figs):
             return
 
         # ② 生成（同じく最大3回）
-        ppath = os.path.join(PAGES, slug + ".html")
+        if backup:
+            os.remove(ppath)
         J.update(state="generating", msg="② 図を参照しながら6章の図解ページを生成中…（数分）")
         for attempt in range(3):
             if attempt:
                 J.update(msg=f"② 接続が切れたため生成をやり直しています…（{attempt+1}回目）")
                 time.sleep(8)
-            r = claude_run(page_prompt(jobrel, slug, topic, pdf_rel), timeout=1200)
+            prompt = (regen_prompt(jobrel, slug, pdf_rel, os.path.relpath(backup, REPO)) if backup
+                      else page_prompt(jobrel, slug, topic, pdf_rel))
+            r = claude_run(prompt, timeout=1200)
             if os.path.exists(ppath):
                 break
         if not os.path.exists(ppath):
@@ -435,6 +468,7 @@ def run_job(job_id, pdf_rel, slug, topic, npages, figs):
 # ---------- chat ----------
 CHAT_SYSTEM = """あなたは論文解説サイト『ronbun』の家庭教師。読者（=このサイトの持ち主、1人）が解説ページを読みながら質問してくる。
 - 日本語で、短く（目安3〜8文）。要点を先に。
+- 論文の専門用語はそのまま使い、必要なら1文で説明を添える。独自のあだ名やたとえ語を作らない。たとえ話は役に立つときだけ1回。
 - ⚠️ Claude っぽい AI 語を書かない（読点だらけの長文・煽り/キャッチコピー・——の決めゼリフ・「ポイントは/つまり」連発・造語の“飾り”・呼びかけや励まし・絵文字）。人が普通に書くノートの文にする。前置き・褒め言葉・締めのまとめゼリフも不要。
 - 直感 → 仕組み → （聞かれたら）数式 の順。数式はプレーンテキスト。
 - 「論文に書いてあること」と「一般知識・あなたの解釈」を区別する（後者は「一般には〜」「私の理解では〜」と前置き）。論文に無い数値は作らない。
@@ -521,7 +555,7 @@ def revise_prompt(slug, transcript, stamp):
 
 ## やること
 - やりとりから「読者がどこで・なぜつまずいたか」を特定する（ページのどの章・どの図・どの言葉か）。
-- **つまずいた箇所だけ** を Edit で書き直す。チャットで読者が納得した説明（たとえ・言い換え・順序）をページ側に取り込む。必要なら短い補足文・図注の改善・小さなインラインSVG（1つ）を足してよい。
+- **つまずいた箇所だけ** を Edit で書き直す。チャットで読者が納得した説明（説明の順序・前提の補足・具体例）をページ側に取り込む。用語は論文の表記のまま使い、あだ名やたとえ語に置き換えない。必要なら短い補足文・図注の改善・小さなインラインSVG（1つ）を足してよい。
 - 書き直した塊（段落や figure を含む要素）を `<div class="revised" id="rev-{stamp}">…</div>` で包み、その先頭に `<p class="rev-note">✎ {stamp[:4]}-{stamp[4:6]}-{stamp[6:8]} 質問をもとに書き直し</p>` を置く。複数箇所なら2つ目以降の id は rev-{stamp}-2, -3…。
 - 6章構成・理解度チェック・study.js の読み込み・既存の図とスクリプトは壊さない。関係ない箇所は触らない。外部依存は足さない。
 - ページに無い事実や数値を足さない（チャットの回答で論文本文に基づくと明言されているものは可）。
@@ -595,6 +629,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.handle_revise()
         if self.path == "/api/revert":
             return self.handle_revert()
+        if self.path == "/api/regen":
+            return self.handle_regen()
         self.send_error(404)
 
     def handle_upload(self):
@@ -690,6 +726,36 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         jid = uuid.uuid4().hex[:12]
         JOBS[jid] = {"state": "queued", "kind": "revise", "slug": slug, "msg": "受け付けました"}
         threading.Thread(target=run_revise, args=(jid, slug, "\n\n".join(lines)), daemon=True).start()
+        self._json({"job_id": jid})
+
+    def handle_regen(self):
+        """既存ページを PDF から作り直す（旧ページは tools/backups/ に退避、/api/revert で戻せる）"""
+        got = self._local_json()
+        if not got:
+            return
+        req, slug = got
+        if any(J.get("slug") == slug and J.get("state") not in ("done", "error") for J in JOBS.values()):
+            return self._json({"error": "このページは作業中です"}, 409)
+        html = open(os.path.join(PAGES, slug + ".html"), encoding="utf-8", errors="replace").read()
+        m = re.search(r'href="(\.\./\.\./papers/[^"]+\.pdf)"', html, re.I)
+        pdf_path = os.path.normpath(os.path.join(PAGES, urllib.parse.unquote(m.group(1)))) if m else ""
+        if not pdf_path or not pdf_path.startswith(os.path.join(REPO, "papers") + os.sep) or not os.path.exists(pdf_path):
+            return self._json({"error": "このページの PDF が papers/ に見つかりません"}, 404)
+        text, npages = extract_text(pdf_path)
+        try:
+            figs = extract_figures(pdf_path, slug)
+        except Exception:
+            figs = []
+        jid = uuid.uuid4().hex[:12]
+        jobdir = os.path.join(JOBSDIR, jid)
+        os.makedirs(jobdir, exist_ok=True)
+        with open(os.path.join(jobdir, "fulltext.txt"), "w", encoding="utf-8") as f:
+            f.write(text)
+        with open(os.path.join(jobdir, "figures.json"), "w", encoding="utf-8") as f:
+            json.dump(figs, f, ensure_ascii=False, indent=1)
+        JOBS[jid] = {"state": "queued", "kind": "regen", "slug": slug, "pages": npages, "figs": len(figs),
+                     "msg": f"作り直しを開始します（全{npages}ページ・図{len(figs)}枚）"}
+        threading.Thread(target=run_job, args=(jid, m.group(1), slug, "", npages, figs, True), daemon=True).start()
         self._json({"job_id": jid})
 
     def handle_revert(self):

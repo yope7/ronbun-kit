@@ -105,13 +105,15 @@ fileInput.addEventListener('change', ()=>{ if(fileInput.files[0]) showReady(file
 document.getElementById('cancel').addEventListener('click', reset);
 
 // generate
-document.getElementById('go').addEventListener('click', async ()=>{
+document.getElementById('go').addEventListener('click', ()=> upload(false));
+async function upload(force){
   if(!picked) return;
   ready.hidden = true; progress.hidden = false;
   setStatus('アップロード中…');
   const fd = new FormData();
   fd.append('file', picked);
   fd.append('topic', document.getElementById('topic').value || '');
+  if(force) fd.append('force', '1');
   let res;
   try{
     const r = await fetch('/api/upload', {method:'POST', body:fd});
@@ -124,10 +126,21 @@ document.getElementById('go').addEventListener('click', async ()=>{
     }
     res = await r.json();
   }catch(e){ return fail('サーバーにつながりません（' + location.origin + '）。python3 tools/server.py が動いているか確認してください。\n' + e); }
+  if(res.duplicate) return duplicate(res.duplicate);
   if(res.error) return fail(res.error);
   setStatus('PDFを受け取りました（全' + (res.pages||'?') + 'ページ・図' + (res.figs??'?') + '枚を抽出）。精読を始めます…');
   poll(res.job_id);
-});
+}
+
+function duplicate(d){
+  document.getElementById('spin').style.display='none';
+  setStatus('この論文はもうあります');
+  const r = document.getElementById('result'); r.hidden=false;
+  r.innerHTML = '<p class="up-hint" style="width:100%">' + escapeHtml(d.title || '') + '（' + escapeHtml(d.reason) + '）</p>'
+    + (d.url ? '<a class="btn-primary" href="'+d.url+'">既存のページを開く</a> ' : '<span class="up-hint">いま生成中です</span> ')
+    + '<button class="btn-ghost" id="force">別の論文なので作る</button>';
+  document.getElementById('force').onclick = ()=>{ r.hidden=true; document.getElementById('spin').style.display=''; upload(true); };
+}
 
 const STAGE_ORDER = ['analyzing','generating','checking'];
 function setStage(state){

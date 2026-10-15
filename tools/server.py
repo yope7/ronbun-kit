@@ -10,7 +10,7 @@ ronbun ローカルサーバ
 - 書き直し: チャットで分からなかった点をもとに、解説ページの該当箇所を Claude が書き直す（/api/revise、バックアップ→点検→失敗なら復元。/api/revert で元に戻す）
 - 依存: pymupdf(fitz), claude CLI（既存の認証を利用するのでAPIキー不要）
 """
-import os, re, json, time, uuid, shutil, threading, subprocess, urllib.parse, urllib.request
+import os, re, json, time, uuid, shutil, hashlib, difflib, threading, subprocess, urllib.parse, urllib.request
 import http.server
 try:
     import pymupdf as fitz   # PyMuPDF（新しい名前）
@@ -125,6 +125,111 @@ def extract_figures(pdf_path, slug):
                     break
     d.close()
     return figs
+
+# ---------- 重複チェック ----------
+ARXIV_RE = re.compile(r'arXiv:\s*(\d{4}\.\d{4,5})', re.I)
+ARXIV_LINK_RE = re.compile(r'arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})', re.I)
+DOI_RE = re.compile(r'\b(10\.\d{4,9}/[^\s"<>]+)', re.I)
+HASHES = {}   # PDFの絶対パス -> (mtime, sha256)
+
+def norm_title(t):
+    return re.sub(r'[^a-z0-9]+', '', (t or '').lower())
+
+def sha256_file(path):
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return None
+    if path in HASHES and HASHES[path][0] == mt:
+        return HASHES[path][1]
+    h = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+    HASHES[path] = (mt, h)
+    return h
+
+def pdf_identity(data):
+    """アップロードされたPDFの指紋: ハッシュ・arXiv ID・DOI・タイトル"""
+    ident = {"sha": hashlib.sha256(data).hexdigest(), "arxiv": None, "doi": None, "title": "", "head": ""}
+    try:
+        d = fitz.open(stream=data, filetype="pdf")
+    except Exception:
+        return ident
+    first = d[0].get_text() if d.page_count else ""
+    # 冒頭（Abstract より前＝タイトルと著者のあたり）
+    ab = re.search(r'\babstract\b', first, re.I)
+    ident["head"] = norm_title(first[:ab.start()] if ab and ab.start() > 40 else first[:800])
+    m = ARXIV_RE.search(first)
+    ident["arxiv"] = m.group(1) if m else None
+    m = DOI_RE.search(first)
+    ident["doi"] = m.group(1).rstrip('.').lower() if m else None
+    # タイトル: メタデータ → 1ページ目の上半分で一番大きい文字の行
+    meta = (d.metadata or {}).get("title") or ""
+    title = meta if len(norm_title(meta)) >= 12 and not re.search(r'\.(pdf|docx?|tex|dvi)$|^untitled|^microsoft', meta, re.I) else ""
+    if not title and d.page_count:
+        page = d[0]; spans = []
+        for b in page.get_text("dict")["blocks"]:
+            for l in b.get("lines", []):
+                if abs(l.get("dir", (1, 0))[1]) > 0.1:   # 縦書きのスタンプ（arXiv:…）は除く
+                    continue
+                for sp in l["spans"]:
+                    if sp["text"].strip() and sp["bbox"][1] < page.rect.height * 0.5 and not ARXIV_RE.match(sp["text"].strip()):
+                        spans.append((round(sp["size"], 1), sp["text"].strip()))
+        if spans:
+            big = max(sz for sz, _ in spans)
+            title = " ".join(t for sz, t in spans if sz >= big - 0.5)
+    ident["title"] = title.strip()[:300]
+    d.close()
+    return ident
+
+def page_identities():
+    """既存の解説ページごとの指紋"""
+    out = []
+    for fn in sorted(os.listdir(PAGES)):
+        if not fn.endswith(".html"):
+            continue
+        slug = fn[:-5]
+        html = open(os.path.join(PAGES, fn), encoding="utf-8", errors="replace").read()
+        sub = re.search(r'<p class="sub"[^>]*>(.*?)</p>', html, re.S)
+        h1 = re.search(r'<title>(.*?)</title>', html, re.S)
+        titles = [re.sub(r'<[^>]+>', '', x.group(1)) for x in (sub, h1) if x]
+        titles = [re.split(r'\s+[—–-]\s+', t)[0].strip() for t in titles]
+        titles = [re.sub(r'\s*[（(][^）)]*[）)]\s*$', '', t) for t in titles]   # 末尾の（略称）は除く
+        shas = []
+        for m in re.finditer(r'href="(\.\./\.\./papers/[^"]+\.pdf)"', html, re.I):
+            pth = os.path.normpath(os.path.join(PAGES, urllib.parse.unquote(m.group(1))))
+            if pth.startswith(os.path.join(REPO, "papers") + os.sep) and os.path.exists(pth):
+                shas.append(sha256_file(pth))
+        out.append({"slug": slug, "titles": titles, "shas": shas,
+                    "arxiv": set(ARXIV_LINK_RE.findall(html)),
+                    "doi": set(x.rstrip('.').lower() for x in re.findall(r'doi\.org/(10\.[^"<\s]+)', html, re.I)),
+                    "label": titles[0] if titles else slug})
+    return out
+
+def find_duplicate(ident):
+    nt = norm_title(ident["title"])
+    for p in page_identities():
+        reason = None
+        if ident["sha"] in p["shas"]:
+            reason = "同じPDFファイル"
+        elif ident["arxiv"] and ident["arxiv"] in p["arxiv"]:
+            reason = f"同じ arXiv ID（{ident['arxiv']}）"
+        elif ident["doi"] and ident["doi"] in p["doi"]:
+            reason = f"同じ DOI（{ident['doi']}）"
+        else:
+            for t in p["titles"]:
+                pt = norm_title(t)
+                if len(pt) >= 15 and (pt == nt or difflib.SequenceMatcher(None, pt, nt).ratio() >= 0.9
+                                      or (min(len(pt), len(nt)) >= 30 and (pt in nt or nt in pt))
+                                      or (len(pt) >= 20 and pt in ident.get("head", ""))):
+                    reason = "同じタイトル"; break
+        if reason:
+            return {"slug": p["slug"], "title": p["label"], "reason": reason,
+                    "url": f"/site/pages/{p['slug']}.html"}
+    # 生成中のジョブとも比べる
+    for J in JOBS.values():
+        if J.get("kind") != "revise" and J.get("state") not in ("done", "error") and (
+                J.get("sha") == ident["sha"] or (nt and len(nt) >= 15 and J.get("ntitle") == nt)):
+            return {"slug": J.get("slug"), "title": J.get("title"), "reason": "いま生成中の論文と同じ", "url": None}
+    return None
 
 def parse_multipart(headers, body):
     ctype = headers.get('Content-Type', '')
@@ -510,6 +615,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not filename.lower().endswith(".pdf") or filedata[:4] != b"%PDF":
             return self._json({"error": "PDFファイルをドロップしてください"}, 400)
 
+        ident = pdf_identity(filedata)
+        if fields.get("force") != "1":
+            dup = find_duplicate(ident)
+            if dup:
+                return self._json({"error": f"この論文はもうあります（{dup['reason']}）: {dup['title']}",
+                                   "duplicate": dup}, 409)
+
         topic = (fields.get("topic") or "").strip()
         topic_folder = slugify(topic) if topic else "uploads"
         os.makedirs(os.path.join(REPO, "papers", topic_folder), exist_ok=True)
@@ -541,7 +653,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pdf_rel = f"../../papers/{topic_folder}/{safe_name}"
         JOBS[jid] = {"state": "queued",
                      "msg": f"受け取りました（全{npages}ページ・図{len(figs)}枚を抽出）。精読を開始します…",
-                     "title": safe_name, "slug": slug, "pages": npages, "figs": len(figs)}
+                     "title": safe_name, "slug": slug, "pages": npages, "figs": len(figs),
+                     "sha": ident["sha"], "ntitle": norm_title(ident["title"])}
         threading.Thread(target=run_job, args=(jid, pdf_rel, slug, topic, npages, figs),
                          daemon=True).start()
         self._json({"job_id": jid, "slug": slug, "pages": npages, "figs": len(figs)})

@@ -12,7 +12,10 @@ ronbun ローカルサーバ
 """
 import os, re, json, time, uuid, shutil, threading, subprocess, urllib.parse, urllib.request
 import http.server
-import fitz  # PyMuPDF
+try:
+    import pymupdf as fitz   # PyMuPDF（新しい名前）
+except ImportError:
+    import fitz              # 古い PyMuPDF
 
 REPO    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # このファイルの2つ上
 PAGES   = os.path.join(REPO, "site", "pages")

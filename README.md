@@ -13,7 +13,7 @@
 ## 必要なもの
 
 - Python 3.9 以上
-- [PyMuPDF](https://pymupdf.readthedocs.io/)（`pip install -r requirements.txt`）
+- [PyMuPDF](https://pymupdf.readthedocs.io/)（`start.sh` が `.venv` に自動で入れる）
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) をインストールしてログイン済みであること
 
 生成とチャットは手元の `claude` コマンドを呼び出します。料金や利用枠は自分の Claude のプラン（または API キー）の分を使います。1本の論文を図解にするのに数分かかります。
@@ -33,10 +33,7 @@ cd ronbun-kit
 - **書き直し**: チャットで「ページに反映して」と頼むか「ページに反映」ボタンを押す。書き直した所には ✎ の印が付く。チャットの「元に戻す」で戻せる
 - **ターミナルで続ける**: チャットの会話は `claude -r` で再開できる。チャットの「ターミナルで続ける」でコマンドをコピーできる
 
-macOS の Python で `pip install` が断られる場合は仮想環境を使ってください:
-```sh
-python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && ./start.sh
-```
+初回は `.venv` を作って PyMuPDF を入れるので少し時間がかかります。
 
 ## 設定
 

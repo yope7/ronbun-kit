@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fourier Features — 図解</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand"><a href="../index.html" style="color:inherit">ronbun<span>.</span></a></div>
+    <nav>
+      <a href="../index.html">ホーム</a>
+      <a href="https://arxiv.org/pdf/2006.10739" target="_blank">PDF</a>
+      <a href="https://arxiv.org/abs/2006.10739" target="_blank" rel="noopener">arXiv</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="crumbs"><a href="../index.html">ホーム</a> › 見本 › Fourier Features</div>
+
+  <section class="hero" style="text-align:left; padding-bottom:10px">
+    <span class="kicker">NeurIPS 2020 · Tancik et al.</span>
+    <h1 style="text-align:left">座標を「波」に変えると、<br>ネットが細かい模様を描けるようになる</h1>
+    <p class="sub" style="margin:0">Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains</p>
+  </section>
+
+  <!-- ひとことで -->
+  <div class="tldr">
+    <h3>ひとことで言うと</h3>
+    <p>位置 <b>(x, y)</b> を入れると色を返す——そんな小さなニューラルネットは、<b>そのまま使うとボヤけた絵</b>しか作れません。
+    ところが、位置を先に <b>「いろんな細かさの波」</b> に変換してから入れるだけで、いきなり<b>くっきり細部まで</b>描けるようになります。</p>
+  </div>
+
+  <!-- ========== 1. 背景 ========== -->
+  <section>
+    <div class="section-head"><span class="step-num">1</span><h2>背景：座標を入れたら色を返す「小さなネット」</h2></div>
+    <p class="lead">最近は、画像や3D形状・シーンを、メッシュやピクセルの集まりではなく <b>「位置を入れたら、その場所の中身（色・密度）を答える1個のネット」</b> として表す方法が流行っています。コンパクトで、なめらかで、学習で最適化しやすいからです。NeRF もこの仲間です。</p>
+
+    <figure class="viz">
+      <svg viewBox="0 0 600 230" id="svg-mlp" aria-label="座標ベースのネット">
+        <!-- 入力 -->
+        <rect x="34" y="86" width="116" height="54" rx="12" fill="#fbe6d2" stroke="#ee7b30" stroke-width="1.5"/>
+        <text x="92" y="110" font-size="14" font-weight="700" fill="#1d2030" text-anchor="middle">位置</text>
+        <text x="92" y="130" font-size="13" fill="#5a6072" text-anchor="middle">(x, y)</text>
+        <!-- 入力→ネット 矢印 -->
+        <line x1="152" y1="113" x2="196" y2="113" stroke="#9b8f74" stroke-width="2"/>
+        <polygon points="196,108 206,113 196,118" fill="#9b8f74"/>
+        <!-- 出力 -->
+        <rect x="500" y="86" width="64" height="54" rx="12" fill="#dbe6fb" stroke="#3066e0" stroke-width="1.5"/>
+        <rect x="512" y="98" width="40" height="14" rx="3" fill="#e06d6d"/>
+        <text x="532" y="132" font-size="12" fill="#5a6072" text-anchor="middle">色 (R,G,B)</text>
+        <!-- ネット→出力 矢印 -->
+        <line x1="476" y1="113" x2="492" y2="113" stroke="#9b8f74" stroke-width="2"/>
+        <polygon points="492,108 502,113 492,118" fill="#9b8f74"/>
+        <!-- ネット本体(JSでノード生成) -->
+        <text x="300" y="206" font-size="13" fill="#5a6072" text-anchor="middle">この小さなネット1個で、画像・3D形状・シーン(NeRF) を“ひとつの関数”として表す</text>
+      </svg>
+      <figcaption>入力は「位置」、出力は「その場所の中身」。学習で、絵や立体まるごとをこのネットの中に覚え込ませます。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ========== 2. 問題 ========== -->
+  <section>
+    <div class="section-head"><span class="step-num">2</span><h2>問題：そのままだとボヤける（しかも直らない）</h2></div>
+    <p class="lead">ところがこのネット、<b>位置をそのまま入れると細部が描けません</b>。下は同じ目標の絵を覚えさせた結果です。</p>
+
+    <figure class="viz">
+      <div style="font-weight:700;font-size:.9rem;margin-bottom:6px">🎯 目標の絵（左ほど大きな模様、右へ行くほど細かい模様）</div>
+      <canvas id="c-target" width="560" height="70" style="width:100%;height:70px;border-radius:8px"></canvas>
+
+      <div class="duo" style="margin-top:20px">
+        <div>
+          <div class="label no">✗ そのまま座標を入れたネット</div>
+          <canvas id="c-blur" width="560" height="70" style="width:100%;height:70px;border-radius:8px"></canvas>
+        </div>
+        <div>
+          <div class="label yes">✓ 波に変換してから入れたネット</div>
+          <canvas id="c-sharp" width="560" height="70" style="width:100%;height:70px;border-radius:8px"></canvas>
+        </div>
+      </div>
+      <figcaption>失敗の仕方が均一ではありません。<b>太い縞は残り、細い縞だけがグレーに溶ける</b>。
+        ＝ ネットは<b>ざっくりは得意・こまかいが苦手</b>。</figcaption>
+    </figure>
+
+    <h3 style="margin:26px 0 4px;font-size:1.1rem">なぜ起きる？ ネットが“ものぐさ”だから</h3>
+    <p>ネットには生まれつきのクセがあります。<b>ざっくりした形は一瞬で覚える</b>のに、<b>細かい変化は後回しにして結局覚えきれない</b>。論文ではこれを「低い周波数に偏る性質（スペクトルバイアス）」と呼びます。学習を長く回してもほとんど直りません。</p>
+
+    <figure class="viz">
+      <svg viewBox="0 0 600 260" id="svg-lazy" aria-label="ものぐさネットの近似">
+        <line x1="40" y1="130" x2="560" y2="130" stroke="#e7e3d8" stroke-width="1"/>
+        <path id="lazy-truth" fill="none" stroke="#c9c4b5" stroke-width="3"/>
+        <path id="lazy-fit" fill="none" stroke="#ee7b30" stroke-width="3.5" stroke-linecap="round"/>
+        <text x="46" y="28" font-size="13" font-weight="700" fill="#5a6072">— 目標の信号（ゆっくり＋こまかい が混ざっている）</text>
+        <text x="46" y="48" font-size="13" font-weight="700" fill="#ee7b30">— ものぐさネットが覚えた形</text>
+      </svg>
+      <figcaption>大きなうねりはピタッと追えるのに、<b>細かいギザギザは無視してならして</b>しまう。だから絵がボヤけます。</figcaption>
+    </figure>
+
+    <div class="note">🧠 たとえ：曲を耳コピするとき、メロディは取れても細かい装飾音は最後まで取りこぼす——あの感覚に近いです。</div>
+  </section>
+
+  <!-- ========== 3. 提案 ========== -->
+  <section>
+    <div class="section-head"><span class="step-num">3</span><h2>提案：座標を「物差しのセット」に変えて渡す</h2></div>
+    <p class="lead">解決策はシンプル。位置をそのまま渡すのをやめ、<b>いろんな細かさの波で“読み取った値”の束</b>に変換してから渡します。これが <b>Fourier features（フーリエ特徴）</b>。</p>
+
+    <div class="note warm">📏 たとえ：1本の物差しだと細かいものは測れません。<b>目盛りの細かさが違う物差しを何本も束ねて</b>渡せば、大きさも細部も両方測れる。波はその「物差し」です。</div>
+
+    <figure class="viz">
+      <svg viewBox="0 0 600 300" id="svg-rulers" aria-label="波で座標を読み取る"></svg>
+      <div class="controls">
+        <label>座標 v</label>
+        <input type="range" id="v-slider" min="0" max="1000" value="320">
+        <span class="val" id="v-val">0.32</span>
+      </div>
+      <figcaption>縦線が今の位置 <span class="mono">v</span>。各波との交点（●）の高さを並べたものが、ネットへの新しい入力
+        <span class="mono">γ(v)</span>。ゆっくりの波（暖色）から細かい波（寒色）まで揃えるのがコツ。</figcaption>
+    </figure>
+
+    <p>位置という1個の数を、<b>「ゆっくりの波での値・少し速い波での値・…・細かい波での値」</b>という<b>たくさんの数の組</b>に置き換えてから見せる。ネットは細かい波を最初から手元に持っているので、もう細部を一から覚えずに済みます。</p>
+
+    <h3 style="margin:26px 0 4px;font-size:1.1rem">なぜ効く？ “細かさ”をちょうどよく選ぶだけ</h3>
+    <p>論文の一番うれしい発見：物差しの細かさは<b>ランダムに選んでOK</b>。効くかを決めるのは、ほぼ<b>「どこまで細かい波を混ぜるか（スケール）」という1つのつまみ</b>だけ。動かしてみてください。</p>
+
+    <figure class="viz">
+      <svg viewBox="0 0 600 240" id="svg-fit" aria-label="スケールを変えると当てはまりが変わる"></svg>
+      <div class="controls">
+        <label>波の細かさ（スケール）</label>
+        <input type="range" id="scale-slider" min="2" max="34" value="9">
+        <span class="val" id="scale-val">9</span>
+      </div>
+      <div class="controls" style="background:#fff;border:none;padding:6px 2px">
+        <span class="verdict" id="verdict">—</span>
+      </div>
+      <figcaption>うすい線＝本当の答え、●＝学習に使えるサンプル（少しノイズ入り）、太い線＝ネットが覚えた形。
+        小さすぎると<b>ボヤけ</b>、大きすぎると<b>点のノイズまで覚えてガタガタ</b>、真ん中で<b>ぴったり</b>。</figcaption>
+    </figure>
+
+    <div class="duo" style="margin-top:8px">
+      <div class="note warm" style="margin:0">⬅ <b>小さすぎ</b>：細かい波が足りず、問題の章と同じく<b>ボヤける</b>。</div>
+      <div class="note" style="margin:0; background:#fde8ec; border-color:#d23f54">➡ <b>大きすぎ</b>：細かすぎて、サンプルの<b>ノイズまで暗記</b>。</div>
+    </div>
+
+    <details class="deep">
+      <summary>もっと詳しく：式と、なぜ「スケール1つ」で決まるのか（NTKの話）</summary>
+      <div class="body">
+        位置 <span class="mono">v</span> を次に変換して入力します：
+        <pre class="mono" style="white-space:pre-wrap;background:#f1eee6;padding:12px 14px;border-radius:8px">γ(v) = [ cos(2π b₁·v), sin(2π b₁·v), … , cos(2π bₘ·v), sin(2π bₘ·v) ]</pre>
+        各 <span class="mono">bⱼ</span> が「波の細かさ（周波数）」。cos と sin のペアで波の“ずれ（位相）”も表せます。<br><br>
+        無限に広いネットの学習は「カーネル回帰」という単純な計算と同じ、という理論（Neural Tangent Kernel, NTK）があります。
+        座標をそのまま入れると、このカーネルは<b>場所によって形が変わり、細かい成分の力が急速に弱まる</b>——これが“ものぐさ”の正体。
+        波に変換すると、カーネルが<b>場所によらず一定の形</b>になり、<b>「どこまで細かい波を通すか」を選べるフィルタ</b>に変わります。
+        だから「スケール（帯域幅）」というつまみ1つが効きます。スケールはランダムなガウス分布から選べばよく、<b>分布の形より“広さ”が効く</b>。
+      </div>
+    </details>
+  </section>
+
+  <!-- ========== 4. 評価（どんな実験） ========== -->
+  <section>
+    <div class="section-head"><span class="step-num">4</span><h2>評価（どんな実験）</h2></div>
+    <p class="lead">著者たちは <b>2段階</b>で確かめました。①まず<b>おもちゃの1D信号</b>で理論どおり動くか、②次に<b>実際のタスク</b>で本当に効くか。</p>
+
+    <div class="duo" style="margin-bottom:18px">
+      <div class="note warm" style="margin:0">
+        <b>① おもちゃの1D信号</b><br>
+        スケールを変えると当てはまりがどう変わるかを測定（上の青いデモがこれ）。理論（NTK）の予測と実測がほぼ一致し、<b>「狭すぎ＝ボヤけ／広すぎ＝過学習／中間が最良」</b>を確認。分布の“形”より“広さ”が効くことも示した。
+      </div>
+      <div class="note" style="margin:0">
+        <b>② 実タスク5種</b><br>
+        2D画像 / 3D形状 / CT再構成 / MRI再構成 / <b>NeRF(3D視点合成)</b>。<br>
+        「そのまま」「Basic」「位置エンコーディング」「ランダムなガウス波」の4通りを比較。指標は画質スコア(PSNR、3D形状のみIoU)。
+      </div>
+    </div>
+
+    <figure class="viz">
+      <svg viewBox="0 0 600 270" aria-label="タスク別の画質改善">
+        <line x1="40" y1="210" x2="575" y2="210" stroke="#cfcabb" stroke-width="1.5"/>
+        <text x="40" y="30" font-size="13" font-weight="700" fill="#5a6072">画質スコア（PSNR・高いほど良い）</text>
+        <rect x="360" y="20" width="14" height="14" rx="3" fill="#bdb8a8"/><text x="380" y="32" font-size="12" fill="#5a6072">そのまま</text>
+        <rect x="450" y="20" width="14" height="14" rx="3" fill="#3066e0"/><text x="470" y="32" font-size="12" fill="#5a6072">Fourier features</text>
+
+        <rect x="64"  y="113" width="40" height="97"  rx="4" fill="#bdb8a8"/>
+        <rect x="116" y="82"  width="40" height="128" rx="4" fill="#3066e0"/>
+        <text x="84"  y="106" font-size="12" fill="#5a6072" text-anchor="middle">19.3</text>
+        <text x="136" y="75"  font-size="12" font-weight="700" fill="#3066e0" text-anchor="middle">25.6</text>
+        <text x="110" y="230" font-size="13" font-weight="700" fill="#1d2030" text-anchor="middle">2D 画像</text>
+
+        <rect x="254" y="126" width="40" height="84"  rx="4" fill="#bdb8a8"/>
+        <rect x="306" y="69"  width="40" height="141" rx="4" fill="#3066e0"/>
+        <text x="274" y="119" font-size="12" fill="#5a6072" text-anchor="middle">16.8</text>
+        <text x="326" y="62"  font-size="12" font-weight="700" fill="#3066e0" text-anchor="middle">28.3</text>
+        <text x="300" y="230" font-size="13" font-weight="700" fill="#1d2030" text-anchor="middle">CT 再構成</text>
+
+        <rect x="444" y="80"  width="40" height="130" rx="4" fill="#bdb8a8"/>
+        <rect x="496" y="38"  width="40" height="172" rx="4" fill="#3066e0"/>
+        <text x="464" y="73"  font-size="12" fill="#5a6072" text-anchor="middle">26.1</text>
+        <text x="516" y="31"  font-size="12" font-weight="700" fill="#3066e0" text-anchor="middle">34.5</text>
+        <text x="490" y="230" font-size="13" font-weight="700" fill="#1d2030" text-anchor="middle">NeRF (3D視点合成)</text>
+      </svg>
+      <figcaption>どのタスクでも、波に変換するだけでスコアが大きく改善（数値は論文 Table 1, ランダムなガウス波）。
+        全タスクでランダムなガウス波が最良でした。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ========== 5. 結論 ========== -->
+  <section>
+    <div class="section-head"><span class="step-num">5</span><h2>結論</h2></div>
+    <p class="lead">座標ベースのネットが細部を描けないのは“ものぐさ（スペクトルバイアス）”のせい。<b>座標を波に変換してから入れる</b>だけでこれを克服でき、しかも調整は<b>「細かさのスケール」1つ</b>で済む——という実用的な指針を示しました。</p>
+
+    <div class="tldr">
+      <h3>要するに</h3>
+      <p>① ネットは細部が苦手。② <b>位置を「いろんな細かさの波」に変換</b>して入れると苦手が消える。
+      ③ 効きを決めるのは<b>スケール1つ</b>。④ これは NeRF など多くのタスクで効き、<b>なぜ座標ベースのネットがうまく動くのかを説明</b>している。</p>
+    </div>
+  </section>
+
+  <!-- ========== 6. 関連研究 ========== -->
+  <section>
+    <div class="section-head"><span class="step-num">6</span><h2>関連研究</h2></div>
+    <p class="lead">この論文は、<b>3つの土台をつなぎ合わせて</b>、座標ベースのネット（NeRFなど）の<b>広がりを支える理論</b>になりました。</p>
+
+        <div class="lineage">
+      <div class="col">
+        <h4>土台になった研究</h4>
+        <div class="ref"><b>ランダムフーリエ特徴</b>Rahimi &amp; Recht 2007 — 波でカーネルを近似する古典手法。本論文の出発点。</div>
+        <div class="ref"><b>NTK 理論</b>Jacot 2018 — 広いネットの学習＝カーネル回帰。</div>
+        <div class="ref"><b>スペクトルバイアス</b>Rahaman 2019 — ネットが低周波に偏る現象の発見。</div>
+      </div>
+      <div class="arrow">➜</div>
+      <div class="col center">
+        <h4>本論文</h4>
+        <div class="ref"><b>Fourier Features（いま見ているページ）</b>Tancik et al. 2020 — 波への変換でスペクトルバイアスを克服。スケール1つで調整。</div>
+      </div>
+      <div class="arrow">➜</div>
+      <div class="col">
+        <h4>広がった先・仲間</h4>
+        <div class="ref"><b>NeRF</b>Mildenhall 2020 — 「位置エンコーディング」はまさに Fourier features の一種。</div>
+        <div class="ref"><b>SIREN</b>Sitzmann 2020 — sin を活性化に使い同じ問題に挑む別アプローチ。</div>
+        <div class="ref"><b>DeepSDF</b>Park 2019 — 形を「符号付き距離」の関数で表す。</div>
+        <div class="ref"><b>Occupancy Networks</b>Mescheder 2019 — 形を「内か外か」の関数で表す。</div>
+      </div>
+    </div>
+    <div class="note">🔗 遠い親戚：<b>Transformer（Attention Is All You Need）</b> の「位置エンコーディング」も、位置を sin/cos の波で表す同じ発想です。</div>
+  </section>
+
+  <!-- ========== 理解度チェック ========== -->
+  <section class="quiz">
+    <div class="section-head"><span class="step-num">✓</span><h2>理解度チェック</h2></div>
+    <p class="lead">各問の解説に、読み直すとよい章を書いています。</p>
+
+    <div class="q">
+      <p class="q-text">Q1. 位置 (x, y) を<b>そのまま</b>ネットに入れると、出来上がる絵はどうなりやすい？</p>
+      <div class="choices">
+        <button class="choice">ノイズだらけのザラザラな絵になる</button>
+        <button class="choice" data-correct>全体はそれっぽいが、細部がボヤける</button>
+        <button class="choice">色が反転した絵になる</button>
+      </div>
+      <div class="q-explain">ネットは“ものぐさ”で、ざっくりした形（低周波）から覚え、細かい模様（高周波）は後回しにします。→ 2章のボヤけた絵の図</div>
+    </div>
+
+    <div class="q">
+      <p class="q-text">Q2. 「位置を波に変換する」とき、波の<b>細かさのスケール</b>を大きくしすぎると何が起きる？</p>
+      <div class="choices">
+        <button class="choice">ボヤけがさらにひどくなる</button>
+        <button class="choice">何も変わらない（大きいほど常に良い）</button>
+        <button class="choice" data-correct>学習した点ではくっきりだが、その間がノイズっぽく荒れる</button>
+      </div>
+      <div class="q-explain">小さすぎるとボヤけ、大きすぎると荒れる——ちょうどいい値（緑）がある「ゴルディロックス」です。→ 3章のスライダーの図</div>
+    </div>
+
+    <div class="q">
+      <p class="q-text">Q3. この論文によると、波の向きや細かさを<b>ランダムに</b>選んでも大丈夫なのはなぜ？</p>
+      <div class="choices">
+        <button class="choice" data-correct>効きを決めるのは主に「細かさの広がり（スケール）」で、個々の向きはあまり関係ないから</button>
+        <button class="choice">学習の途中でネットが波を最適な形に作り直すから</button>
+        <button class="choice">ランダムな波は必ず元の画像と同じ周波数になるから</button>
+      </div>
+      <div class="q-explain">実験でも、ランダムなガウス波がどのタスクでも最良でした。大事なのはスケール1つ。→ 3章・4章の表</div>
+    </div>
+
+    <div class="q">
+      <p class="q-text">Q4. NeRF の「位置エンコーディング」と、この論文の関係として正しいのは？</p>
+      <div class="choices">
+        <button class="choice">まったく別の発想で、無関係</button>
+        <button class="choice" data-correct>NeRF の位置エンコーディングは Fourier features の一種で、この論文はなぜ効くかを説明した</button>
+        <button class="choice">この論文が NeRF の位置エンコーディングは不要だと示した</button>
+      </div>
+      <div class="q-explain">NeRF は sin/cos の波で位置を表していました。それがなぜ効くのかを理論と実験で示したのがこの論文です。→ 6章の関連研究</div>
+    </div>
+  </section>
+
+  <p style="margin:30px 0 10px">
+    📄 原論文：<a href="https://arxiv.org/pdf/2006.10739" target="_blank">arXiv PDF</a>
+    &nbsp;·&nbsp; <a href="https://arxiv.org/abs/2006.10739" target="_blank" rel="noopener">arXiv:2006.10739</a>
+  </p>
+
+</main>
+
+<footer class="wrap">ronbun — 論文よみ整理ノート</footer>
+
+<script>
+const NS = 'http://www.w3.org/2000/svg';
+function el(t, a){ const e=document.createElementNS(NS,t); for(const k in a) e.setAttribute(k,a[k]); return e; }
+
+/* ===== 1. 背景：座標ベースのネット (MLPのノード生成) ===== */
+(function(){
+  const svg=document.getElementById('svg-mlp');
+  const layers=[2,4,4,3], colX=[228,312,396,460], top=58, bottom=168;
+  const pos=layers.map((n,li)=>{ const a=[]; for(let i=0;i<n;i++){ const y=n===1?(top+bottom)/2:top+(bottom-top)*i/(n-1); a.push({x:colX[li],y}); } return a; });
+  for(let l=0;l<pos.length-1;l++) pos[l].forEach(p=>pos[l+1].forEach(q=>
+    svg.appendChild(el('line',{x1:p.x,y1:p.y,x2:q.x,y2:q.y,stroke:'#e7e0d0','stroke-width':1}))));
+  pos.forEach((col,li)=>col.forEach(p=>svg.appendChild(el('circle',{cx:p.x,cy:p.y,r:8,
+    fill:'#ffffff',stroke:'#bcb6a6','stroke-width':1.5}))));
+})();
+
+/* ===== 2-a. 周波数スイープの縞 (canvas) ===== */
+function drawGrating(canvas){
+  const ctx=canvas.getContext('2d'), W=canvas.width, H=canvas.height;
+  for(let x=0;x<W;x++){ const t=x/W; const v=0.5+0.5*Math.sin(2*Math.PI*(3*x*t));
+    const g=Math.round(20+v*215); ctx.fillStyle=`rgb(${g},${g},${g})`; ctx.fillRect(x,0,1,H); }
+}
+drawGrating(document.getElementById('c-target'));
+drawGrating(document.getElementById('c-sharp'));
+const blur=document.getElementById('c-blur'); drawGrating(blur); blur.style.filter='blur(4.5px)';
+
+/* ===== 2-b. ものぐさネットの近似 ===== */
+(function(){
+  const X0=40,X1=560,CY=130,A=70;
+  const truth=x=>0.62*Math.sin(2*Math.PI*x)+0.30*Math.sin(2*Math.PI*5*x+0.7)+0.16*Math.sin(2*Math.PI*9*x+0.3);
+  const lazy =x=>0.62*Math.sin(2*Math.PI*x);
+  const path=fn=>{ let d=''; for(let i=0;i<=240;i++){ const x=i/240; d+=(i?'L':'M')+(X0+(X1-X0)*x).toFixed(1)+' '+(CY-A*fn(x)).toFixed(1);} return d; };
+  document.getElementById('lazy-truth').setAttribute('d',path(truth));
+  document.getElementById('lazy-fit').setAttribute('d',path(lazy));
+})();
+
+/* ===== 3-a. 物差し（波）で座標を読み取る ===== */
+(function(){
+  const svg=document.getElementById('svg-rulers'), X0=70,X1=560, freqs=[1,2,4,8];
+  const colors=['#ee7b30','#e0913a','#5f8fd6','#3066e0'];
+  const labels=['ゆっくりの波','少し速い波','細かい波','とても細かい波'], bands=[55,120,185,250], amp=26;
+  freqs.forEach((f,i)=>{
+    let d=''; for(let j=0;j<=200;j++){ const v=j/200; d+=(j?'L':'M')+(X0+(X1-X0)*v).toFixed(1)+' '+(bands[i]-amp*Math.sin(2*Math.PI*f*v)).toFixed(1);}
+    svg.appendChild(el('path',{d,fill:'none',stroke:colors[i],'stroke-width':2.5,opacity:.85}));
+    const t=el('text',{x:6,y:bands[i]+4,'font-size':11,fill:colors[i],'font-weight':700}); t.textContent=labels[i]; svg.appendChild(t);
+  });
+  const vline=el('line',{y1:25,y2:285,stroke:'#1d2030','stroke-width':2,'stroke-dasharray':'4 4'}); svg.appendChild(vline);
+  const dots=freqs.map((f,i)=>{ const c=el('circle',{r:6,fill:colors[i],stroke:'#fff','stroke-width':2}); svg.appendChild(c); return c; });
+  const vlabel=el('text',{y:18,'font-size':12,'font-weight':700,fill:'#1d2030','text-anchor':'middle'}); svg.appendChild(vlabel);
+  const slider=document.getElementById('v-slider'), out=document.getElementById('v-val');
+  function update(){ const v=slider.value/1000, px=X0+(X1-X0)*v;
+    vline.setAttribute('x1',px); vline.setAttribute('x2',px); vlabel.setAttribute('x',px); vlabel.textContent='v='+v.toFixed(2);
+    freqs.forEach((f,i)=>{ dots[i].setAttribute('cx',px); dots[i].setAttribute('cy',bands[i]-amp*Math.sin(2*Math.PI*f*v)); });
+    out.textContent=v.toFixed(2); }
+  slider.addEventListener('input',update); update();
+})();
+
+/* ===== 3-b. スケールで当てはまりが変わる ===== */
+(function(){
+  const svg=document.getElementById('svg-fit'), X0=40,X1=560,CY=120,A=80;
+  const truth=x=>0.55*Math.sin(2*Math.PI*x)+0.30*Math.sin(2*Math.PI*3*x+0.8)+0.18*Math.sin(2*Math.PI*6*x+0.3);
+  const N=14, noise=[0.06,-0.09,0.04,0.11,-0.05,0.08,-0.10,0.03,0.07,-0.06,0.10,-0.04,0.05,-0.08];
+  const xs=[],ys=[]; for(let i=0;i<N;i++){ const x=(i+0.5)/N; xs.push(x); ys.push(truth(x)+noise[i]); }
+  let td=''; for(let i=0;i<=240;i++){ const x=i/240; td+=(i?'L':'M')+(X0+(X1-X0)*x).toFixed(1)+' '+(CY-A*truth(x)).toFixed(1);}
+  svg.appendChild(el('path',{d:td,fill:'none',stroke:'#d8d3c4','stroke-width':3}));
+  xs.forEach((x,i)=>svg.appendChild(el('circle',{cx:X0+(X1-X0)*x,cy:CY-A*ys[i],r:4.5,fill:'#9b8f74'})));
+  const fit=el('path',{fill:'none','stroke-width':3.8,'stroke-linecap':'round'}); svg.appendChild(fit);
+  const slider=document.getElementById('scale-slider'), out=document.getElementById('scale-val'), verdict=document.getElementById('verdict');
+  function update(){ const s=+slider.value; out.textContent=s; const h=0.36/s; let d='';
+    for(let k=0;k<=240;k++){ const x=k/240; let num=0,den=0;
+      for(let i=0;i<N;i++){ const w=Math.exp(-0.5*((x-xs[i])/h)**2); num+=w*ys[i]; den+=w; }
+      const y=den>1e-9?num/den:0; d+=(k?'L':'M')+(X0+(X1-X0)*x).toFixed(1)+' '+(CY-A*y).toFixed(1); }
+    fit.setAttribute('d',d);
+    let col,msg;
+    if(s<6){ col='#ee7b30'; msg='⬅ ボヤけている（細かい波が足りない＝問題の章と同じ失敗）'; }
+    else if(s<=15){ col='#1f9d72'; msg='✓ ちょうどいい！ 目標にぴったり重なっている'; }
+    else { col='#d23f54'; msg='➡ ガタガタ（点のノイズまで覚えてしまった＝やりすぎ）'; }
+    fit.setAttribute('stroke',col); verdict.setAttribute('style','color:'+col); verdict.textContent=msg; }
+  slider.addEventListener('input',update); update();
+})();
+</script>
+
+<script src="../assets/study.js"></script>
+</body>
+</html>

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>論文をアップロード — ronbun</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand"><a href="index.html" style="color:inherit">ronbun<span>.</span></a></div>
+    <nav><a href="index.html">ホーム</a></nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero" style="padding-bottom:18px">
+    <h1>論文を追加</h1>
+  </section>
+
+  <!-- ドロップゾーン -->
+  <div id="drop" class="dropzone">
+    <div class="dz-inner">
+      <div class="dz-ico">📄⤵️</div>
+      <div class="dz-main">ここに論文PDFをドラッグ&ドロップ</div>
+      <div class="dz-sub">またはクリックして選択</div>
+      <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+    </div>
+  </div>
+
+  <!-- 選択後のパネル -->
+  <div id="ready" class="up-panel" hidden>
+    <div class="up-file"><span class="up-fico">📄</span><span id="up-name">file.pdf</span> <span id="up-meta" class="up-metatxt"></span></div>
+    <label class="up-field">
+      <span>分野（任意・空ならおまかせ）</span>
+      <input type="text" id="topic" placeholder="例：座標ベースのニューラル表現（NeRF系） / 多目的強化学習 …">
+    </label>
+    <div class="up-actions">
+      <button id="go" class="btn-primary">🪄 解説を生成する</button>
+      <button id="cancel" class="btn-ghost">やめる</button>
+    </div>
+  </div>
+
+  <!-- 進行・結果 -->
+  <div id="progress" class="up-progress" hidden>
+    <div class="up-spin" id="spin"></div>
+    <div class="up-stages" id="stages">
+      <span data-s="analyzing">① 精読（全文＋図を読む）</span>
+      <span data-s="generating">② 図解ページ生成</span>
+      <span data-s="checking">③ 自己点検</span>
+    </div>
+    <div class="up-status" id="status">準備中…</div>
+    <div class="up-hint" id="hint">3段階で作るため 5〜15分ほどかかります。このタブは開いたままにしてください。</div>
+    <div id="result" class="up-result" hidden></div>
+  </div>
+  <style>
+    .up-stages { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin:14px 0 6px; }
+    .up-stages span { font-size:.85rem; color:var(--ink-soft); border:1px solid var(--line);
+      border-radius:999px; padding:4px 12px; background:var(--card); opacity:.55; }
+    .up-stages span.on   { opacity:1; border-color:var(--cool); color:var(--cool); font-weight:700; }
+    .up-stages span.done { opacity:1; border-color:var(--good); color:var(--good); }
+    .up-stages span.done::after { content:" ✓"; }
+  </style>
+
+  <div class="note" style="margin-top:28px">
+    処理の流れ（Claude Opus 5.5）
+    <br>① 本文と図を読んで精読メモを作る
+    <br>② 図解ページを <code>site/pages/</code> に作る
+    <br>③ 章・図・リンクを点検して直す
+  </div>
+
+</main>
+
+<footer class="wrap">ronbun — 論文よみ整理ノート</footer>
+
+<script>
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file');
+const ready = document.getElementById('ready');
+const progress = document.getElementById('progress');
+let picked = null;
+
+function showReady(f){
+  picked = f;
+  document.getElementById('up-name').textContent = f.name;
+  document.getElementById('up-meta').textContent = '（' + Math.round(f.size/1024) + ' KB）';
+  drop.hidden = true; ready.hidden = false; progress.hidden = true;
+}
+function reset(){ picked=null; fileInput.value=''; drop.hidden=false; ready.hidden=true; progress.hidden=true; }
+
+// drag & drop
+['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop', ev=>{
+  const f = ev.dataTransfer.files[0];
+  if(!f) return;
+  if(!/\.pdf$/i.test(f.name)){ alert('PDFファイルをドロップしてください'); return; }
+  showReady(f);
+});
+drop.addEventListener('click', ()=> fileInput.click());
+fileInput.addEventListener('change', ()=>{ if(fileInput.files[0]) showReady(fileInput.files[0]); });
+document.getElementById('cancel').addEventListener('click', reset);
+
+// generate
+document.getElementById('go').addEventListener('click', async ()=>{
+  if(!picked) return;
+  ready.hidden = true; progress.hidden = false;
+  setStatus('アップロード中…');
+  const fd = new FormData();
+  fd.append('file', picked);
+  fd.append('topic', document.getElementById('topic').value || '');
+  let res;
+  try{
+    const r = await fetch('/api/upload', {method:'POST', body:fd});
+    const ct = r.headers.get('content-type') || '';
+    if(!ct.includes('json')){
+      const body = (await r.text()).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,200);
+      return fail('サーバーが想定外の応答を返しました（HTTP ' + r.status + '）。\n'
+        + 'いま開いているURL: ' + location.origin + '\n'
+        + 'アップロードは python3 tools/server.py で起動した http://127.0.0.1:8800/site/upload.html からだけ使えます。\n\n応答: ' + body);
+    }
+    res = await r.json();
+  }catch(e){ return fail('サーバーにつながりません（' + location.origin + '）。python3 tools/server.py が動いているか確認してください。\n' + e); }
+  if(res.error) return fail(res.error);
+  setStatus('PDFを受け取りました（全' + (res.pages||'?') + 'ページ・図' + (res.figs??'?') + '枚を抽出）。精読を始めます…');
+  poll(res.job_id);
+});
+
+const STAGE_ORDER = ['analyzing','generating','checking'];
+function setStage(state){
+  const spans = document.querySelectorAll('#stages span');
+  const idx = state==='done' ? STAGE_ORDER.length : STAGE_ORDER.indexOf(state);
+  spans.forEach((s,i)=>{
+    s.classList.toggle('done', idx>i);
+    s.classList.toggle('on', idx===i);
+  });
+}
+
+function setStatus(t){ document.getElementById('status').textContent = t; }
+function fail(msg){
+  document.getElementById('spin').style.display='none';
+  setStatus('⚠️ エラー');
+  const r = document.getElementById('result'); r.hidden=false;
+  r.innerHTML = '<div class="up-err">'+escapeHtml(msg)+'</div><button class="btn-ghost" onclick="location.reload()">最初に戻る</button>';
+}
+function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function poll(id){
+  const iv = setInterval(async ()=>{
+    let j;
+    try{ j = await fetch('/api/status?id='+id).then(r=>r.json()); }catch(e){ return; }
+    if(j.msg) setStatus(j.msg);
+    if(j.state) setStage(j.state);
+    if(j.state === 'done'){
+      clearInterval(iv);
+      document.getElementById('spin').style.display='none';
+      setStatus('✅ 完成しました！');
+      const r = document.getElementById('result'); r.hidden=false;
+      r.innerHTML = '<a class="btn-primary" href="'+j.url+'">📖 解説ページを開く</a> '
+                  + '<a class="btn-ghost" href="index.html">トップで見る</a>';
+    } else if(j.state === 'error'){
+      clearInterval(iv);
+      fail(j.error || '生成に失敗しました');
+    }
+  }, 3000);
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,76 @@
+# ronbun
+
+論文 PDF を渡すと日本語の図解ページを作るローカル用の論文ノートです。Claude Code（`claude` コマンド）を使います。
+
+- PDF をアップロードすると、本文と図を読んで1論文1ページの解説を作る
+- 構成は全ページ共通: ひとことで → 背景 → 問題 → 提案 → 評価 → 結論 → 関連研究
+- 各ページの最後に3択の理解度チェック（4問）
+- 各ページ右下の質問チャットで、ページと論文本文をもとに質問できる
+- チャットで分からなかった点をページに反映して書き直せる（元に戻せる）
+
+自分のパソコンの中だけで動きます。サーバーは 127.0.0.1 でしか待ち受けません。
+
+## 必要なもの
+
+- Python 3.9 以上
+- [PyMuPDF](https://pymupdf.readthedocs.io/)（`pip install -r requirements.txt`）
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) をインストールしてログイン済みであること
+
+生成とチャットは手元の `claude` コマンドを呼び出します。料金や利用枠は自分の Claude のプラン（または API キー）の分を使います。1本の論文を図解にするのに数分かかります。
+
+## 使い方
+
+```sh
+git clone https://github.com/yope7/ronbun-kit.git
+cd ronbun-kit
+./start.sh
+```
+
+ブラウザで http://127.0.0.1:8800/site/ が開きます。見本として Fourier Features のページが1つ入っています。
+
+- **論文を追加**: トップの「📤 論文を追加」から PDF をドロップする。トピック名を入れるとその見出しの下に入る
+- **質問**: 解説ページ右下の「💬 質問する」。文章を選択してから開くとその部分について聞ける
+- **書き直し**: チャットで「ページに反映して」と頼むか「ページに反映」ボタンを押す。書き直した所には ✎ の印が付く。チャットの「元に戻す」で戻せる
+- **ターミナルで続ける**: チャットの会話は `claude -r` で再開できる。チャットの「ターミナルで続ける」でコマンドをコピーできる
+
+macOS の Python で `pip install` が断られる場合は仮想環境を使ってください:
+```sh
+python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && ./start.sh
+```
+
+## 設定
+
+環境変数で変えられます。
+
+| 変数 | 既定値 | 内容 |
+|---|---|---|
+| `PORT` | `8800` | ポート |
+| `RONBUN_MODEL` | `claude-opus-5-5` | 図解の生成に使うモデル |
+| `RONBUN_CHAT_MODEL` | `RONBUN_MODEL` と同じ | チャットのモデル |
+| `CLAUDE_BIN` | 自動で探す | `claude` コマンドの場所 |
+
+説明の好みは `preferences.md` に書きます。生成もチャットもこのファイルを読むので、自分に合わせて書き換えてください。文体のルールは `CLAUDE.md` にあります。
+
+## ファイル
+
+```
+papers/<topic>/          アップロードした PDF（git 管理外）
+site/index.html          トップ
+site/pages/<slug>.html   解説ページ
+site/figs/<slug>/        PDF から切り出した図（git 管理外）
+site/assets/             共通の CSS と JS
+tools/server.py          サーバー（アップロード・生成・チャット・書き直し）
+preferences.md           説明の好み
+CLAUDE.md                Claude への作業ルール
+```
+
+PDF と切り出した図は著作権のある素材なので `.gitignore` で除外しています。作った解説ページを公開する場合も、論文の図の扱いに気をつけてください。
+
+## 注意
+
+- サーバーはアップロードされた PDF を Claude に読ませ、このフォルダの中のファイルを書き換えさせます。信頼できない PDF は入れないでください。
+- 自分のパソコンの外に公開する作りにはなっていません。
+
+## ライセンス
+
+MIT

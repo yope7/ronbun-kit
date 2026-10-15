@@ -1,0 +1,16 @@
+# 自分の論文と、そこから切り出した図
+papers/**
+!papers/.gitkeep
+site/figs/**
+!site/figs/.gitkeep
+
+# サーバーの作業ファイル
+tools/jobs/
+tools/chat/
+tools/backups/
+tools/server.log
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

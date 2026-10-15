@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ronbun — 論文よみ整理</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">ronbun<span>.</span></div>
+    <nav>
+      <a href="index.html">ホーム</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap directory">
+
+  <!-- ステータスバー（未読・新着） -->
+  <div class="statusbar">
+    <span class="stat">📚 全 <b id="stat-total">0</b> 本</span>
+    <span class="stat hot">🆕 新着 <b id="stat-new">0</b></span>
+    <span class="stat">● 未読 <b id="stat-unread">0</b></span>
+    <span class="spacer"></span>
+    <a class="add-link" href="upload.html">📤 論文を追加</a>
+    <label class="toggle"><input type="checkbox" id="filter-unread">未読のみ表示</label>
+    <button id="mark-all-read" title="今ある論文をすべて既読扱いにします">すべて既読にする</button>
+  </div>
+
+  <!-- 新着（最近追加したもの） -->
+  <section class="newly" id="newly" hidden>
+    <h2>🆕 新着・最近追加された論文</h2>
+    <div class="new-list"></div>
+  </section>
+
+  <div class="topic">
+    <div class="topic-title">見本</div>
+    <div class="cards">
+
+      <a class="paper-card" href="pages/fourier-features.html">
+        <span class="tag">解説あり</span>
+        <h3>Fourier Features — 座標を波に変えると細かい模様が描ける</h3>
+        <p>座標をそのまま入れるとボヤける。波に変換してから入れると細部まで描ける。NeRF の位置エンコーディングの理論的な土台。</p>
+        <div class="row"><span>📄 Tancik et al., NeurIPS 2020</span><span>🖼️ 図解 6章</span></div>
+      </a>
+
+    </div>
+  </div>
+
+</main>
+
+<footer class="wrap">
+  ronbun — 論文よみ整理ノート &nbsp;·&nbsp; ローカルで <code>python3 -m http.server</code> 配信中
+</footer>
+
+<script>
+/* ディレクトリ表示 + 未読/新着トラッキング（localStorage、href をキーに自動判定） */
+(function(){
+  const LS = {
+    get(k,d){ try{ const v=localStorage.getItem('ronbun.'+k); return v===null?d:JSON.parse(v); }catch(e){ return d; } },
+    set(k,v){ try{ localStorage.setItem('ronbun.'+k, JSON.stringify(v)); }catch(e){} }
+  };
+  const main = document.querySelector('main.directory');
+  if(!main) return;
+  const cards = Array.from(main.querySelectorAll('.paper-card'));
+  const idOf = a => (a.getAttribute('href')||'').replace(/^pages\//,'').replace(/\.html$/,'');
+  const now = Date.now(), DAY = 86400000, NEW_DAYS = 7;
+
+  let read = new Set(LS.get('read', []));
+  let firstSeen = LS.get('firstSeen', null);
+  const firstVisit = (firstSeen === null);
+  if(firstVisit) firstSeen = {};
+  // 初回訪問時は既存の論文を「以前から在った」扱いにして新着にしない
+  cards.forEach(a=>{ const id=idOf(a); if(!(id in firstSeen)) firstSeen[id] = firstVisit ? (now - 999*DAY) : now; });
+  LS.set('firstSeen', firstSeen);
+  const isNew = id => !read.has(id) && (now - (firstSeen[id]||0) < NEW_DAYS*DAY);
+
+  const saveRead = ()=> LS.set('read', [...read]);
+
+  // 各論文行を装飾
+  cards.forEach(a=>{
+    const id = idOf(a);
+    a.classList.toggle('read', read.has(id));
+    a.classList.toggle('unread', !read.has(id));
+    if(!a.querySelector('.rdot')){ const d=document.createElement('span'); d.className='rdot'; a.appendChild(d); }
+    let b=a.querySelector('.badges'); if(!b){ b=document.createElement('span'); b.className='badges'; a.appendChild(b); }
+    b.innerHTML = (isNew(id)?'<span class="badge-new">NEW</span>':'') + (read.has(id)?'<span class="badge-read">既読</span>':'');
+    a.addEventListener('click', ()=>{ read.add(id); saveRead(); }, {capture:true});
+  });
+
+  // フォルダ（トピック）を折りたたみ式に＋件数表示
+  const collapsed = new Set(LS.get('collapsed', []));
+  main.querySelectorAll('.topic').forEach(topic=>{
+    const title = topic.querySelector('.topic-title'); if(!title) return;
+    const name = title.textContent.trim();
+    const inCards = Array.from(topic.querySelectorAll('.paper-card'));
+    const unread = inCards.filter(a=>!read.has(idOf(a))).length;
+    if(unread===0) topic.classList.add('no-unread');
+    title.innerHTML = '<span class="chev">▾</span><span class="folder-ico">📁</span>'
+      + '<span class="fname"></span><span class="fcount">'+inCards.length+'本'
+      + (unread? ' · <span class="funread">未読'+unread+'</span>':'') + '</span>';
+    title.querySelector('.fname').textContent = name;
+    topic.dataset.name = name;
+    if(collapsed.has(name)) topic.classList.add('collapsed');
+    title.addEventListener('click', ()=>{
+      topic.classList.toggle('collapsed');
+      if(topic.classList.contains('collapsed')) collapsed.add(name); else collapsed.delete(name);
+      LS.set('collapsed', [...collapsed]);
+    });
+  });
+
+  // 新着セクション
+  const newCards = cards.filter(a=>isNew(idOf(a)))
+    .sort((x,y)=> (firstSeen[idOf(y)]||0) - (firstSeen[idOf(x)]||0));
+  const newlyEl = document.getElementById('newly');
+  if(newlyEl){
+    if(newCards.length){
+      const list = newlyEl.querySelector('.new-list'); list.innerHTML='';
+      newCards.forEach(a=>{
+        const id=idOf(a);
+        const topicName = a.closest('.topic') ? (a.closest('.topic').dataset.name||'') : '';
+        const title = (a.querySelector('h3')||{}).textContent || id;
+        const el=document.createElement('a'); el.href=a.getAttribute('href');
+        el.innerHTML='<span class="nf-new">NEW</span><span class="nf-title"></span><span class="nf-topic"></span>';
+        el.querySelector('.nf-title').textContent = title;
+        el.querySelector('.nf-topic').textContent = topicName ? ('📁 '+topicName) : '';
+        el.addEventListener('click', ()=>{ read.add(id); saveRead(); }, {capture:true});
+        list.appendChild(el);
+      });
+      newlyEl.hidden = false;
+    } else { newlyEl.hidden = true; }
+  }
+
+  // カウンタ
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set('stat-total', cards.length);
+  set('stat-new', newCards.length);
+  set('stat-unread', cards.filter(a=>!read.has(idOf(a))).length);
+
+  // 未読のみ表示
+  const filter = document.getElementById('filter-unread');
+  if(filter){ const apply=()=> main.classList.toggle('show-unread-only', filter.checked); filter.addEventListener('change', apply); apply(); }
+
+  // すべて既読に
+  const mar = document.getElementById('mark-all-read');
+  if(mar) mar.addEventListener('click', ()=>{ cards.forEach(a=>read.add(idOf(a))); saveRead(); location.reload(); });
+})();
+</script>
+
+</body>
+</html>

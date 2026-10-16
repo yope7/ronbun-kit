@@ -271,6 +271,10 @@ a.note:hover .go { text-decoration: underline; }
 .directory .paper-card .badges { position: absolute; right: 14px; top: 13px; display: flex; gap: 6px; align-items: center; }
 .directory .badge-new { background: var(--warm); color: #fff; font-size: .66rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; letter-spacing: .05em; }
 .directory .badge-read { font-size: .72rem; color: var(--ink-soft); }
+.directory .card-del { position: absolute; right: 14px; bottom: 11px; font: inherit; font-size: .72rem; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink-soft); border-radius: 6px; padding: 1px 8px; display: none; }
+.directory .paper-card:hover .card-del { display: block; }
+.directory .card-del:hover { border-color: var(--bad); color: var(--bad); }
 /* フィルタ（未読のみ） */
 .directory.show-unread-only .paper-card.read { display: none; }
 .directory.show-unread-only .topic.no-unread { display: none; }

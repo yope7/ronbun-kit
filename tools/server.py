@@ -22,6 +22,7 @@ PAGES   = os.path.join(REPO, "site", "pages")
 FIGSDIR = os.path.join(REPO, "site", "figs")
 JOBSDIR = os.path.join(REPO, "tools", "jobs")
 CHATDIR = os.path.join(REPO, "tools", "chat")
+TRASHDIR = os.path.join(REPO, "tools", "trash")    # 削除したページ（ページ・カード・図・PDF）の退避先
 BACKDIR = os.path.join(REPO, "tools", "backups")   # 書き直し前のページ   # チャット用の作業dir（本文キャッシュ置き場）
 EXTRA_PATH = [os.path.expanduser("~/.local/bin"), os.path.expanduser("~/.claude/local"),
               "/opt/homebrew/bin", "/usr/local/bin"]
@@ -637,6 +638,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.handle_revert()
         if self.path == "/api/regen":
             return self.handle_regen()
+        if self.path == "/api/delete":
+            return self.handle_delete()
         self.send_error(404)
 
     def handle_upload(self):
@@ -763,6 +766,54 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                      "msg": f"作り直しを開始します（全{npages}ページ・図{len(figs)}枚）"}
         threading.Thread(target=run_job, args=(jid, m.group(1), slug, "", npages, figs, True), daemon=True).start()
         self._json({"job_id": jid})
+
+    def handle_delete(self):
+        """ページを削除する。消さずに tools/trash/<slug>.<日時>/ へ移す。
+        {"slug", "dry": true} なら何が消えるかと、このページへリンクしている他ページを返すだけ"""
+        got = self._local_json()
+        if not got:
+            return
+        req, slug = got
+        if any(J.get("slug") == slug and J.get("state") not in ("done", "error") for J in JOBS.values()):
+            return self._json({"error": "このページは作業中です"}, 409)
+        page = os.path.join(PAGES, slug + ".html")
+        html = open(page, encoding="utf-8", errors="replace").read()
+        idx_path = os.path.join(REPO, "site", "index.html")
+        idx = open(idx_path, encoding="utf-8").read()
+        card_re = re.compile(r'\n?[ \t]*<a class="paper-card" href="pages/' + re.escape(slug) + r'\.html">.*?</a>[ \t]*\n?', re.S)
+        card = card_re.search(idx)
+        figs = os.path.join(FIGSDIR, slug)
+        # papers/uploads/ の PDF は、他のページから参照されていなければ一緒に移す
+        pdf = ""
+        m = re.search(r'href="(\.\./\.\./papers/[^"]+\.pdf)"', html, re.I)
+        others = [f for f in os.listdir(PAGES) if f.endswith(".html") and f != slug + ".html"]
+        def other_html(f):
+            return open(os.path.join(PAGES, f), encoding="utf-8", errors="replace").read()
+        if m:
+            cand = os.path.normpath(os.path.join(PAGES, urllib.parse.unquote(m.group(1))))
+            if cand.startswith(os.path.join(REPO, "papers", "uploads") + os.sep) and os.path.exists(cand) \
+                    and not any(m.group(1) in other_html(f) for f in others):
+                pdf = cand
+        linked = sorted(f[:-5] for f in others if f'href="{slug}.html' in other_html(f))
+        plan = {"page": os.path.relpath(page, REPO), "card": bool(card),
+                "figs": os.path.relpath(figs, REPO) if os.path.isdir(figs) else "",
+                "pdf": os.path.relpath(pdf, REPO) if pdf else "", "linked_from": linked}
+        if req.get("dry"):
+            return self._json(plan)
+        dest = os.path.join(TRASHDIR, f"{slug}.{time.strftime('%Y%m%d%H%M%S')}")
+        os.makedirs(dest, exist_ok=True)
+        if card:
+            with open(os.path.join(dest, "card.html"), "w", encoding="utf-8") as f:
+                f.write(card.group(0).strip("\n") + "\n")
+            with open(idx_path, "w", encoding="utf-8") as f:
+                f.write(re.sub(r'\n[ \t]*\n(?:[ \t]*\n)+', '\n\n', idx[:card.start()] + "\n" + idx[card.end():]))
+        shutil.move(page, os.path.join(dest, slug + ".html"))
+        if plan["figs"]:
+            shutil.move(figs, os.path.join(dest, "figs"))
+        if pdf:
+            shutil.move(pdf, os.path.join(dest, os.path.basename(pdf)))
+        plan["trash"] = os.path.relpath(dest, REPO)
+        self._json(plan)
 
     def handle_revert(self):
         got = self._local_json()

@@ -147,6 +147,32 @@
   // すべて既読に
   const mar = document.getElementById('mark-all-read');
   if(mar) mar.addEventListener('click', ()=>{ cards.forEach(a=>read.add(idOf(a))); saveRead(); location.reload(); });
+
+  // 削除（tools/server.py で開いているときだけ動く。ページは tools/trash/ に移す）
+  async function api(body){
+    const r = await fetch('/api/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if(!(r.headers.get('content-type')||'').includes('json')) throw new Error('python3 tools/server.py で開いたときだけ削除できます');
+    const j = await r.json(); if(j.error) throw new Error(j.error); return j;
+  }
+  cards.forEach(a=>{
+    const b = document.createElement('button');
+    b.type='button'; b.className='card-del'; b.textContent='削除'; b.title='このページを削除する';
+    b.addEventListener('click', async ev=>{
+      ev.preventDefault(); ev.stopPropagation();
+      const id = idOf(a), title = (a.querySelector('h3')||{}).textContent || id;
+      try{
+        const p = await api({slug:id, dry:true});
+        let msg = '「'+title+'」を削除します。\n\n移すもの:\n・'+p.page + (p.figs?'\n・'+p.figs:'') + (p.pdf?'\n・'+p.pdf:'')
+          + '\n\n移動先は tools/trash/ です。';
+        if(p.linked_from.length) msg += '\n\n次のページからリンクされています。リンクは切れます:\n・'+p.linked_from.join('\n・');
+        if(!confirm(msg)) return;
+        await api({slug:id});
+        read.delete(id); saveRead();
+        location.reload();
+      }catch(e){ alert('削除できませんでした: '+e.message); }
+    });
+    a.appendChild(b);
+  });
 })();
 </script>
 

@@ -66,7 +66,7 @@
       .replace(/`([^`\n]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
       .replace(/^#{1,4}\s+(.+)$/gm, '<b class="h">$1</b>')
-      .replace(/^\s*[-*・]\s+(.+)$/gm, '<span class="li">$1</span>')
+      .replace(/^\s*[-*・]\s+(.+)\n?/gm, '<span class="li">$1</span>')
       .replace(/\n{2,}/g, '<br><br>').replace(/\n/g, '<br>');
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre>${esc(blocks[+i])}</pre>`);
   }
@@ -82,11 +82,13 @@
     const panel = document.createElement('div');
     panel.className = 'chat-panel'; panel.hidden = true;
     panel.innerHTML = `
-      <div class="chat-head"><b>この論文について質問</b>
-        <button type="button" class="chat-rev" title="分からなかった点をもとに、このページの該当箇所を書き直す" hidden>ページに反映</button>
-        <button type="button" class="chat-cli" title="この会話をターミナルの claude -r で続けるコマンドをコピー" hidden>ターミナルで続ける</button>
-        <button type="button" class="chat-new" title="会話をリセット">新しい会話</button>
-        <button type="button" class="chat-x" aria-label="閉じる">×</button></div>
+      <div class="chat-head">
+        <div class="chat-title"><b>この論文について質問</b>
+          <button type="button" class="chat-new" title="会話をリセット">新しい会話</button>
+          <button type="button" class="chat-x" aria-label="閉じる">×</button></div>
+        <div class="chat-tools" hidden>
+          <button type="button" class="chat-rev" title="分からなかった点をもとに、このページの該当箇所を書き直す" hidden>✎ ページに反映</button>
+          <button type="button" class="chat-cli" title="この会話をターミナルの claude -r で続けるコマンドをコピー" hidden>ターミナルで続ける</button></div></div>
       <div class="chat-log"></div>
       <form class="chat-form">
         <div class="chat-quote" hidden></div>
@@ -108,7 +110,8 @@
       catch (e) { window.prompt('ターミナルに貼り付けてください', cmd); }
     };
     const rev = panel.querySelector('.chat-rev');
-    const syncButtons = () => { cli.hidden = !st.session; rev.hidden = !st.msgs.some(m => m.role === 'ai'); };
+    const syncButtons = () => { cli.hidden = !st.session; rev.hidden = !st.msgs.some(m => m.role === 'ai');
+      panel.querySelector('.chat-tools').hidden = cli.hidden && rev.hidden; };
     rev.onclick = async () => {
       if (busy) return;
       busy = true; rev.disabled = true;

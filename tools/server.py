@@ -601,6 +601,11 @@ def run_revise(job_id, slug, transcript):
 
 # ---------- HTTP ----------
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        # 編集した css/js/html がブラウザのキャッシュで古いまま出ないように
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def __init__(self, *a, **k):
         super().__init__(*a, directory=REPO, **k)
 

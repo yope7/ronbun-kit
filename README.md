@@ -74,3 +74,9 @@ PDF と切り出した図は著作権のある素材なので `.gitignore` で�
 ## ライセンス
 
 MIT
+
+## 知見メモ（任意）
+
+`knowledge/` に git リポジトリと `papers/` フォルダを置くと、ページを作るたびに研究用の知見メモ（`papers/<slug>.md` と `INDEX.md`）も書き出して push する。
+そのリポジトリを別のマシンで `~/.claude/skills/ronbun` に clone すると、そこの Claude Code が論文の知見をスキルとして使える。
+`SKILL.md` は自分で `knowledge/` に置く（`name` と、いつ使うかを書いた `description`）。既存ページのメモは `python3 tools/build_knowledge.py` でまとめて作れる。

@@ -22,6 +22,7 @@ PAGES   = os.path.join(REPO, "site", "pages")
 FIGSDIR = os.path.join(REPO, "site", "figs")
 JOBSDIR = os.path.join(REPO, "tools", "jobs")
 CHATDIR = os.path.join(REPO, "tools", "chat")
+KDIR    = os.path.join(REPO, "knowledge")           # 知見メモ（別の git リポジトリ。研究サーバーの Claude がスキルとして読む）
 TRASHDIR = os.path.join(REPO, "tools", "trash")    # 削除したページ（ページ・カード・図・PDF）の退避先
 BACKDIR = os.path.join(REPO, "tools", "backups")   # 書き直し前のページ   # チャット用の作業dir（本文キャッシュ置き場）
 EXTRA_PATH = [os.path.expanduser("~/.local/bin"), os.path.expanduser("~/.claude/local"),
@@ -462,10 +463,139 @@ def _run_job(J, jobrel, pdf_rel, slug, topic, npages, figs, ppath, backup):
         note = "" if not problems else f"（注: 未解決の指摘 {len(problems)} 件あり）"
         J.update(state="done", msg="完成しました！" + note,
                  url=f"/site/pages/{slug}.html", warnings=problems)
+        knowledge_bg(slug, os.path.join(REPO, jobrel, "fulltext.txt"), apath)   # 研究サーバー用の知見メモ
     except subprocess.TimeoutExpired:
         J.update(state="error", error="タイムアウトしました（生成に時間がかかりすぎ）。もう一度お試しください。")
     except Exception as e:
         J.update(state="error", error=f"{type(e).__name__}: {e}")
+
+# ---------- 知見メモ（knowledge/） ----------
+KLOCK = threading.Lock()
+
+def knowledge_prompt(slug, txt_rel, analysis_rel):
+    src = f"1. {txt_rel} — 論文全文（PDFから抽出）。**Read の offset を変えながら最終行まで全部読む。**\n" if txt_rel else \
+          "1. （論文本文は手元にない。解説ページだけが材料。その旨を本文の冒頭に1行書く）\n"
+    if analysis_rel:
+        src += f"2. {analysis_rel} — 以前に作った精読メモ（参考。事実は本文で確かめる）\n"
+    return f"""あなたは研究者のための論文ノート係。作業ディレクトリは {REPO}。
+論文 1本ぶんの知見メモを knowledge/papers/{slug}.md に必ず Write せよ。
+このメモは、別のサーバーで研究コードを書いている Claude が「この論文の知見を使って」と頼まれたときに読む。
+初学者向けの説明ではなく、実装や実験設計の判断に使える事実を密に書く。
+
+## 読むもの
+{src}3. site/pages/{slug}.html — 解説ページ（関連論文のリンク先 slug を拾うため。説明文は流用しない）
+4. knowledge/papers/ にある他のメモのファイル名（関連論文の slug として使う）
+
+## 形式（この通りに）
+---
+slug: {slug}
+title: 原題（英語のまま）
+authors: 筆頭著者 et al.
+venue: 会議/ジャーナル 年
+ids: arXiv ID / DOI（分からなければ空）
+tags: [英語の小文字キーワードを5〜10個。例: scheduling, reinforcement-learning, gnn, spark]
+summary: 何を何でどうした論文かを1文（日本語、論文の用語のまま）
+---
+
+# 原題
+
+## 問題設定
+何を最適化/予測するのか。入力・出力・前提・制約。既存手法の何がだめだったか。
+
+## 手法
+実装できる粒度で。モデル構造、状態・行動・報酬（強化学習なら）、損失関数、学習手順、推論時の流れ。
+重要な式は `コード` か ``` で書く。ハイパーパラメータや規模（層数・次元・学習ステップなど）は本文の値。
+
+## 実験設定
+データセット/環境/ワークロード、比較手法、評価指標、ハードウェア。
+
+## 主な結果
+数値つきの箇条書き。どの表/図の値かを（Table 2）のように付ける。改善率は何に対してかを書く。
+
+## 限界と注意点
+論文が自分で認めている限界と、読んで分かる前提の強さ（例: 実行時間を事前に知っている仮定）を分けて書く。
+
+## 使うときの判断材料
+どんな条件なら効く/効かないか。再実装で詰まりそうな点。公開コードがあれば URL。
+
+## 用語
+論文固有の用語を1行ずつ（用語: 説明）。
+
+## 関連
+- このメモ集にある論文: [[slug]] と1行の関係
+- その他の重要な引用: 著者 年, 何の論文か
+
+## ルール
+- 事実は論文本文から。数値を作らない。分からないことは「本文に記載なし」と書く。
+- 日本語。専門用語は論文の表記のまま。あだ名・たとえ話・煽り・決めゼリフ・「つまり」「ポイントは」を書かない。読点の多い長文にしない。
+- 書き終えたら、それだけを1行で報告。"""
+
+def kfront(path):
+    t = open(path, encoding="utf-8", errors="replace").read()
+    m = re.match(r'---\n(.*?)\n---', t, re.S)
+    d = {}
+    for line in (m.group(1).splitlines() if m else []):
+        k, _, v = line.partition(":")
+        d[k.strip()] = v.strip()
+    return d
+
+def page_topics():
+    idx = open(os.path.join(REPO, "site", "index.html"), encoding="utf-8", errors="replace").read()
+    out = {}
+    for part in idx.split('<div class="topic"')[1:]:
+        t = re.search(r'class="topic-title">(.*?)</div>', part, re.S)
+        for slug in re.findall(r'href="pages/([^"]+)\.html"', part):
+            out[slug] = re.sub(r'<[^>]+>', '', t.group(1)).strip() if t else ""
+    return out
+
+def write_kindex():
+    pdir = os.path.join(KDIR, "papers")
+    topics = page_topics()
+    groups = {}
+    for f in sorted(os.listdir(pdir)):
+        if f.endswith(".md"):
+            d = kfront(os.path.join(pdir, f))
+            groups.setdefault(topics.get(f[:-3], "その他"), []).append((f[:-3], d))
+    lines = ["# 論文メモ一覧", "",
+             "1行 = 1論文。詳細は papers/<slug>.md。tags で grep すると探しやすい。", ""]
+    for g in sorted(groups):
+        lines += [f"## {g}", ""]
+        for slug, d in groups[g]:
+            lines.append(f"- **{slug}** — {d.get('title','')} ({d.get('venue','')}) — {d.get('summary','')} `{d.get('tags','')}`")
+        lines.append("")
+    with open(os.path.join(KDIR, "INDEX.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+def kgit(*args):
+    return subprocess.run(["git", "-C", KDIR, *args], capture_output=True, text=True, timeout=120)
+
+def make_knowledge(slug, txt_path="", analysis_path="", push=True):
+    """解説ページ1本ぶんの知見メモを作って INDEX を更新し、push する。失敗しても例外は出さない"""
+    if not os.path.isdir(os.path.join(KDIR, "papers")):
+        return "knowledge/ がない"
+    if not txt_path:
+        html = open(os.path.join(PAGES, slug + ".html"), encoding="utf-8", errors="replace").read()
+        if paper_text(slug, html):
+            txt_path = os.path.join(CHATDIR, slug + ".txt")
+    rel = lambda p: os.path.relpath(p, REPO) if p and os.path.exists(p) else ""
+    out = os.path.join(KDIR, "papers", slug + ".md")
+    before = os.path.getmtime(out) if os.path.exists(out) else 0
+    try:
+        claude_run(knowledge_prompt(slug, rel(txt_path), rel(analysis_path)), timeout=1500, tools="Read,Write,Glob")
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+    if not os.path.exists(out) or os.path.getmtime(out) == before:
+        return "メモが書かれなかった"
+    with KLOCK:
+        write_kindex()
+        if push:
+            kgit("add", "-A")
+            kgit("commit", "-qm", f"{slug}")
+            kgit("push", "-q")
+    return ""
+
+def knowledge_bg(slug, txt_path="", analysis_path=""):
+    threading.Thread(target=make_knowledge, args=(slug, txt_path, analysis_path), daemon=True).start()
 
 # ---------- chat ----------
 CHAT_SYSTEM = """あなたは論文解説サイト『ronbun』の家庭教師。読者（=このサイトの持ち主、1人）が解説ページを読みながら質問してくる。
@@ -625,6 +755,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             jid = q.get("id", [""])[0]
             self._json(JOBS.get(jid, {"state": "unknown"}))
             return
+        if self.path.startswith("/api/jobs"):
+            # 進行中の生成・作り直し（トップの「生成中」表示用）
+            out = []
+            for jid, J in JOBS.items():
+                if J.get("kind") == "revise" or J.get("state") in ("done", "error"):
+                    continue
+                title = J.get("paper") or ""
+                am = os.path.join(JOBSDIR, jid, "analysis.md")
+                if os.path.exists(am):
+                    m = re.search(r'^- タイトル[:：]\s*(.+)$', open(am, encoding="utf-8", errors="replace").read(), re.M)
+                    if m:
+                        title = m.group(1).strip()
+                out.append({"id": jid, "slug": J.get("slug"), "kind": J.get("kind", "upload"), "state": J.get("state"),
+                            "title": title or J.get("title") or J.get("slug"), "msg": J.get("msg", ""),
+                            "elapsed": int(time.time() - J["t0"]) if J.get("t0") else None})
+            self._json({"jobs": out})
+            return
         return super().do_GET()
 
     def do_POST(self):
@@ -699,7 +846,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         JOBS[jid] = {"state": "queued",
                      "msg": f"受け取りました（全{npages}ページ・図{len(figs)}枚を抽出）。精読を開始します…",
                      "title": safe_name, "slug": slug, "pages": npages, "figs": len(figs),
-                     "sha": ident["sha"], "ntitle": norm_title(ident["title"])}
+                     "sha": ident["sha"], "ntitle": norm_title(ident["title"]),
+                     "paper": ident["title"], "t0": time.time()}
         threading.Thread(target=run_job, args=(jid, pdf_rel, slug, topic, npages, figs),
                          daemon=True).start()
         self._json({"job_id": jid, "slug": slug, "pages": npages, "figs": len(figs)})
@@ -762,7 +910,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             f.write(text)
         with open(os.path.join(jobdir, "figures.json"), "w", encoding="utf-8") as f:
             json.dump(figs, f, ensure_ascii=False, indent=1)
-        JOBS[jid] = {"state": "queued", "kind": "regen", "slug": slug, "pages": npages, "figs": len(figs),
+        JOBS[jid] = {"state": "queued", "kind": "regen", "slug": slug, "t0": time.time(), "pages": npages, "figs": len(figs),
                      "msg": f"作り直しを開始します（全{npages}ページ・図{len(figs)}枚）"}
         threading.Thread(target=run_job, args=(jid, m.group(1), slug, "", npages, figs, True), daemon=True).start()
         self._json({"job_id": jid})

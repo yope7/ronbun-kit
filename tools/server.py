@@ -591,6 +591,7 @@ def make_knowledge(slug, txt_path="", analysis_path="", push=True):
         if push:
             kgit("add", "-A")
             kgit("commit", "-qm", f"{slug}")
+            kgit("pull", "-q", "--rebase")   # GitHub 上で SKILL.md などを直していることがある
             kgit("push", "-q")
     return ""
 

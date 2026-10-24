@@ -29,4 +29,4 @@ if __name__ == "__main__":
         list(ex.map(one, slugs))
     with S.KLOCK:
         S.write_kindex()
-        S.kgit("add", "-A"); S.kgit("commit", "-qm", f"Add {len(slugs)} notes"); print(S.kgit("push", "-q").stderr)
+        S.kgit("add", "-A"); S.kgit("commit", "-qm", f"Add {len(slugs)} notes"); S.kgit("pull", "-q", "--rebase"); print(S.kgit("push", "-q").stderr)
